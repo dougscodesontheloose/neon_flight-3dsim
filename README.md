@@ -2,7 +2,7 @@
 
 A browser-based 3D flight simulator built with Three.js. 
 
-**Play it live here:** [INSERT_YOUR_GITHUB_PAGES_LINK_HERE]
+**Play it live here:** https://dougscodesontheloose.github.io/neon_flight-3dsim/
 
 ## Features
 *   **Dual Themes:** Toggle between **Synthwave** (Dark) and **Vaporwave** (Light) aesthetics.
