@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Flight Simulator</title>
+    
+    <style>
+        /* --- CSS VARIABLES FOR THEMES --- */
+        :root {
+            /* Default (Dark/Synthwave) */
+            --bg-color: #050011;
+            --ui-bg: rgba(0, 0, 0, 0.8);
+            --ui-border: #0ff;
+            --ui-text: #0ff;
+            --ui-accent: #f0f;
+            --ui-highlight: #ff0;
+            --scanline-opacity: 0.25;
+        }
+
+        body.light-mode {
+            /* Light (Vaporwave) */
+            --bg-color: #e6ccff;
+            --ui-bg: rgba(255, 255, 255, 0.6);
+            --ui-border: #9900cc;
+            --ui-text: #5500aa;
+            --ui-accent: #0088ff;
+            --ui-highlight: #ff0055;
+            --scanline-opacity: 0.1;
+        }
+
+        /* --- GLOBAL STYLES --- */
+        body { 
+            margin: 0; overflow: hidden; 
+            background: var(--bg-color); 
+            font-family: 'Courier New', Courier, monospace; 
+            user-select: none; 
+            transition: background 0.5s;
+        }
+
+        /* CRT Overlay */
+        body::after {
+            content: " "; display: block;
+            position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, var(--scanline-opacity)) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 20; background-size: 100% 2px, 3px 100%; pointer-events: none;
+        }
+
+        /* UI CONTAINERS */
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 0, 20, 0.95);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; color: #fff; text-align: center; cursor: pointer;
+        }
+        body.light-mode #start-screen { background: rgba(255, 230, 255, 0.95); color: #5500aa; }
+
+        #start-screen h1 { 
+            font-size: 60px; margin: 0; color: var(--ui-accent); text-shadow: 4px 4px 0px var(--ui-border); 
+            font-style: italic; letter-spacing: 5px; text-transform: uppercase;
+        }
+        .subtitle { letter-spacing:2px; font-weight:bold; margin-top: 10px; }
+        .blink { animation: blink 1s step-end infinite; color: var(--ui-highlight); margin-top: 20px; font-size: 20px; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* HUD & PANELS */
+        .panel {
+            position: absolute; z-index: 30;
+            background: var(--ui-bg); border: 2px solid var(--ui-border);
+            box-shadow: 0 0 10px var(--ui-border);
+            padding: 15px; color: var(--ui-text);
+            backdrop-filter: blur(4px);
+            transition: all 0.5s;
+        }
+
+        #hud { top: 20px; left: 20px; border-color: var(--ui-accent); color: var(--ui-accent); box-shadow: 0 0 10px var(--ui-accent); }
+        .hud-title { border-bottom:2px solid currentColor; margin-bottom:5px; font-weight:bold; }
+        .unit { font-size:10px; }
+
+        #ui-layer { top: 20px; right: 20px; width: 220px; }
+        #controls-help { bottom: 20px; left: 20px; font-size: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        /* CONTROLS */
+        select { 
+            background: rgba(0,0,0,0.5); color: #fff; border: 1px solid var(--ui-border); 
+            padding: 5px; width: 100%; margin-bottom: 10px; 
+            font-family: inherit; cursor: pointer; outline: none;
+        }
+        body.light-mode select { background: rgba(255,255,255,0.8); color: #5500aa; }
+
+        label { font-size: 10px; letter-spacing: 1px; opacity: 0.8; }
+        .highlight-text { color: var(--ui-highlight); }
+        .key { background: #222; padding: 2px 5px; border: 1px solid var(--ui-highlight); color: var(--ui-highlight); display: inline-block; }
+        .active-key { background: var(--ui-highlight); color: #000; }
+
+        /* THEME TOGGLE BUTTON */
+        #theme-btn {
+            margin-top: 10px; width: 100%; padding: 5px;
+            background: var(--ui-accent); color: #fff; border: none;
+            cursor: pointer; font-family: inherit; font-weight: bold;
+            text-transform: uppercase;
+        }
+        #theme-btn:hover { filter: brightness(1.2); }
+    </style>
+
+    <!-- Import Map (Essential for modules) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+
+    <!-- START SCREEN -->
+    <div id="start-screen">
+        <h1>NEON FLIGHT</h1>
+        <p class="subtitle">INSERT COIN // SYSTEM READY</p>
+        <div class="blink">CLICK TO START</div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="panel">
+        <div class="hud-title">SYSTEM DATA</div>
+        SPD: <span id="speedVal">0</span> <span class="unit">MACH</span><br>
+        ALT: <span id="altVal">0</span> <span class="unit">FT</span><br>
+        STS: <span id="statusVal">DOCKED</span>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="ui-layer" class="panel">
+        <label>SHIP CLASS</label>
+        <select id="planeSelect">
+            <option value="TRAINER">Vector Mk1 (Balanced)</option>
+            <option value="JET">Interceptor (Fast)</option>
+            <option value="BIPLANE">Glider-X (Floaty)</option>
+        </select>
+        
+        <label>HYPERDRIVE</label>
+        <select id="speedSelect">
+            <option value="0.5">50% (Chill)</option>
+            <option value="1.0" selected>100% (Normal)</option>
+            <option value="1.5">150% (Turbo)</option>
+            <option value="2.0">200% (Outrun)</option>
+        </select>
+
+        <button id="theme-btn">SWITCH THEME</button>
+    </div>
+
+    <!-- CONTROLS -->
+    <div id="controls-help" class="panel">
+        <div>
+            <b class="highlight-text">THRUST</b><br>
+            <span id="key-w" class="key">W</span> Accel<br>
+            <span id="key-s" class="key">S</span> Decel<br>
+            <span id="key-down" class="key">↓</span> Pitch Up<br>
+            <span id="key-up" class="key">↑</span> Pitch Down
+        </div>
+        <div>
+            <b class="highlight-text">VECTOR</b><br>
+            <span id="key-left" class="key">←</span> Bank L<br>
+            <span id="key-right" class="key">→</span> Bank R<br>
+            <span id="key-space" class="key">SPC</span> Brake
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+        import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+
+        // --- COLOR PALETTES ---
+        const THEMES = {
+            DARK: {
+                id: 'dark',
+                background: 0x050011,
+                fog: 0x050011,
+                ground: 0x000000,
+                grid1: 0xff00ff, // Pink
+                grid2: 0x220044, // Dark Purple
+                runway: 0x111111,
+                runwayEdge: 0x00ffff, // Cyan
+                sun: 0xffaa00, // Orange
+                buildingFill: 0x000000,
+                buildingLine: 0xff00ff,
+                textColor: 0xbfff00 // Lime
+            },
+            LIGHT: {
+                id: 'light',
+                background: 0xffccff, // Pastel Pink/Purple
+                fog: 0xffccff,
+                ground: 0xffccff, // Same as sky for infinite haze
+                grid1: 0x9900cc, // Deep Purple
+                grid2: 0xffffff, // White
+                runway: 0xffffff,
+                runwayEdge: 0xff00ff, // Magenta
+                sun: 0x00ffff, // Cyan Sun (Vaporwave style)
+                buildingFill: 0xffffff,
+                buildingLine: 0x5500aa, // Dark Purple
+                textColor: 0x0088ff
+            }
+        };
+
+        // --- GAME CONFIG ---
+        const WORLD_SIZE = 6000;
+        const RUNWAY_LENGTH = 2000;
+        const GRAVITY = 0.02;
+
+        const AIRCRAFT = {
+            TRAINER: { maxSpeed: 4.0, accel: 0.01, liftCoeff: 0.03, turnSpeed: 0.03, color: 0x00ffff, model: createTrainer },
+            JET: { maxSpeed: 7.5, accel: 0.03, liftCoeff: 0.018, turnSpeed: 0.05, color: 0xff00ff, model: createJet },
+            BIPLANE: { maxSpeed: 2.5, accel: 0.008, liftCoeff: 0.05, turnSpeed: 0.025, color: 0xbfff00, model: createBiplane }
+        };
+
+        // --- STATE ---
+        let scene, camera, renderer;
+        let planeGroup, blimpGroup, worldGroup;
+        let gridHelper, sunMesh;
+
+        let currentTheme = THEMES.DARK; // Start Dark
+        let gameRunning = false;
+        let speed = 0;
+        let speedMult = 1.0;
+        let currentStats = AIRCRAFT.TRAINER;
+
+        const inputs = { w:0, s:0, up:0, down:0, left:0, right:0, brake:0 };
+        const uiSpeed = document.getElementById('speedVal');
+        const uiAlt = document.getElementById('altVal');
+        const uiStatus = document.getElementById('statusVal');
+
+        init();
+        animate();
+
+        function init() {
+            // Setup Scene
+            scene = new THREE.Scene();
+            setupEnvironment(currentTheme);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 8000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+            scene.add(ambient);
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            sunLight.position.set(0, 500, -1000);
+            scene.add(sunLight);
+
+            // Initial Spawns
+            spawnPlane('TRAINER');
+            
+            // Event Listeners
+            window.addEventListener('resize', onResize);
+            window.addEventListener('keydown', (e) => handleInput(e, true));
+            window.addEventListener('keyup', (e) => handleInput(e, false));
+            
+            document.getElementById('start-screen').addEventListener('click', startGame);
+            
+            // Focus fix: Ensure keyboard works after using dropdowns
+            document.getElementById('planeSelect').addEventListener('change', (e) => { 
+                spawnPlane(e.target.value); 
+                document.activeElement.blur(); 
+            });
+            document.getElementById('speedSelect').addEventListener('change', (e) => { 
+                speedMult = parseFloat(e.target.value); 
+                document.activeElement.blur(); 
+            });
+            
+            // Theme Toggle
+            document.getElementById('theme-btn').addEventListener('click', () => {
+                toggleTheme();
+                document.activeElement.blur();
+            });
+        }
+
+        function toggleTheme() {
+            currentTheme = (currentTheme === THEMES.DARK) ? THEMES.LIGHT : THEMES.DARK;
+            
+            if (currentTheme.id === 'light') {
+                document.body.classList.add('light-mode');
+            } else {
+                document.body.classList.remove('light-mode');
+            }
+
+            setupEnvironment(currentTheme); 
+        }
+
+        function setupEnvironment(theme) {
+            scene.background = new THREE.Color(theme.background);
+            scene.fog = new THREE.FogExp2(theme.background, 0.0012);
+
+            if (worldGroup) scene.remove(worldGroup);
+            
+            // We recreate blimpGroup in the separate function to fix text color
+            if (blimpGroup) scene.remove(blimpGroup); 
+
+            worldGroup = new THREE.Group();
+            scene.add(worldGroup);
+
+            // Ground
+            const gMat = new THREE.MeshStandardMaterial({ color: theme.ground, roughness: 0.0, metalness: 0.2 });
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE), gMat);
+            ground.rotation.x = -Math.PI/2;
+            worldGroup.add(ground);
+
+            // Grid
+            gridHelper = new THREE.GridHelper(WORLD_SIZE, 120, theme.grid1, theme.grid2);
+            gridHelper.position.y = 0.1;
+            worldGroup.add(gridHelper);
+
+            // Runway
+            const rMat = new THREE.MeshBasicMaterial({ color: theme.runway });
+            const runway = new THREE.Mesh(new THREE.PlaneGeometry(80, RUNWAY_LENGTH), rMat);
+            runway.rotation.x = -Math.PI/2;
+            runway.position.y = 0.2;
+            worldGroup.add(runway);
+
+            const eMat = new THREE.MeshBasicMaterial({ color: theme.runwayEdge });
+            const e1 = new THREE.Mesh(new THREE.PlaneGeometry(2, RUNWAY_LENGTH), eMat);
+            e1.rotation.x = -Math.PI/2; e1.position.set(-40, 0.3, 0); worldGroup.add(e1);
+            const e2 = new THREE.Mesh(new THREE.PlaneGeometry(2, RUNWAY_LENGTH), eMat);
+            e2.rotation.x = -Math.PI/2; e2.position.set(40, 0.3, 0); worldGroup.add(e2);
+
+            // Sun
+            const sMat = new THREE.MeshBasicMaterial({ color: theme.sun, fog: false });
+            sunMesh = new THREE.Mesh(new THREE.CircleGeometry(300, 32), sMat);
+            sunMesh.position.set(0, 200, -4000);
+            worldGroup.add(sunMesh);
+
+            // Buildings
+            const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+            const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+            const bMat = new THREE.MeshBasicMaterial({ color: theme.buildingFill });
+            const lMat = new THREE.LineBasicMaterial({ color: theme.buildingLine });
+
+            for(let i=0; i<300; i++) {
+                const h = 20 + Math.random()*150;
+                const w = 10 + Math.random()*30;
+                
+                const b = new THREE.Mesh(boxGeo, bMat);
+                b.scale.set(w, h, w);
+                
+                let x = (Math.random()-0.5)*WORLD_SIZE;
+                let z = (Math.random()-0.5)*WORLD_SIZE;
+                if(Math.abs(x)<150 && Math.abs(z)<RUNWAY_LENGTH/1.2) x+=400; 
+                
+                b.position.set(x, h/2, z);
+                worldGroup.add(b);
+
+                const wFrame = new THREE.LineSegments(edgesGeo, lMat);
+                wFrame.position.copy(b.position);
+                wFrame.scale.copy(b.scale);
+                worldGroup.add(wFrame);
+            }
+            
+            createBlimp();
+        }
+
+        function createBlimp() {
+            blimpGroup = new THREE.Group();
+            
+            const wireColor = currentTheme.id === 'dark' ? 0xff00ff : 0x5500aa;
+            const bodyColor = currentTheme.id === 'dark' ? 0x111111 : 0xffffff;
+            const textColor = currentTheme.textColor;
+
+            const bGeo = new THREE.SphereGeometry(30, 16, 16); bGeo.scale(1, 0.6, 0.6);
+            const b = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: bodyColor }));
+            b.add(new THREE.LineSegments(new THREE.EdgesGeometry(bGeo), new THREE.LineBasicMaterial({color: wireColor})));
+            blimpGroup.add(b);
+
+            const gGeo = new THREE.BoxGeometry(12, 4, 4);
+            const gondola = new THREE.Mesh(gGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+            gondola.position.set(0, -18, 0); blimpGroup.add(gondola);
+
+            const l = new FontLoader();
+            l.load('https://unpkg.com/three@0.160.0/examples/fonts/helvetiker_bold.typeface.json', (f) => {
+                const tGeo = new TextGeometry('CYBER CORP', { font: f, size: 4, height: 0.5 });
+                tGeo.center();
+                const tMat = new THREE.MeshBasicMaterial({ color: textColor });
+                const t1 = new THREE.Mesh(tGeo, tMat); t1.position.set(0,0,16); blimpGroup.add(t1);
+                const t2 = new THREE.Mesh(tGeo, tMat); t2.position.set(0,0,-16); t2.rotation.y=Math.PI; blimpGroup.add(t2);
+            });
+            scene.add(blimpGroup);
+        }
+
+        function startGame() {
+            gameRunning = true;
+            document.getElementById('start-screen').style.display = 'none';
+        }
+
+        function handleInput(e, isDown) {
+            const k = e.key.toLowerCase();
+            const c = e.code;
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+
+            if(c === 'Space' && isDown && !gameRunning) { startGame(); return; }
+            if(!gameRunning) return;
+
+            if(k==='w') setIn('w', isDown, 'key-w');
+            if(k==='s') setIn('s', isDown, 'key-s');
+            if(c==='ArrowUp') setIn('up', isDown, 'key-up');
+            if(c==='ArrowDown') setIn('down', isDown, 'key-down');
+            if(c==='ArrowLeft'||k==='a') setIn('left', isDown, 'key-left');
+            if(c==='ArrowRight'||k==='d') setIn('right', isDown, 'key-right');
+            if(c==='Space') setIn('brake', isDown, 'key-space');
+        }
+
+        function setIn(prop, val, id) {
+            inputs[prop] = val;
+            const el = document.getElementById(id);
+            if(el) val ? el.classList.add('active-key') : el.classList.remove('active-key');
+        }
+
+        function onResize() {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function update() {
+            if(!gameRunning) {
+                if(planeGroup) {
+                    const t = Date.now() * 0.0005;
+                    camera.position.set(
+                        planeGroup.position.x + Math.cos(t)*40,
+                        planeGroup.position.y + 15,
+                        planeGroup.position.z + Math.sin(t)*40
+                    );
+                    camera.lookAt(planeGroup.position);
+                }
+                return;
+            }
+
+            if(!planeGroup) return;
+
+            // Physics
+            const maxS = currentStats.maxSpeed * speedMult;
+            const acc = currentStats.accel * speedMult;
+            
+            if(inputs.w && speed < maxS) speed += acc;
+            if(inputs.s && speed > 0) speed -= acc;
+            if(inputs.brake && speed > 0) speed -= 0.05 * speedMult;
+            if(speed < 0) speed = 0;
+
+            planeGroup.translateZ(speed);
+
+            const auth = Math.min(speed/2, 1.0);
+            const tr = currentStats.turnSpeed * auth * speedMult;
+
+            if(inputs.down) planeGroup.rotateX(-tr);
+            if(inputs.up) planeGroup.rotateX(tr);
+            if(inputs.left) planeGroup.rotateZ(tr);
+            if(inputs.right) planeGroup.rotateZ(-tr);
+
+            planeGroup.rotation.y += -planeGroup.rotation.z * 0.015 * auth;
+            if(!inputs.left && !inputs.right) planeGroup.rotation.z *= 0.98;
+            if(!inputs.up && !inputs.down) planeGroup.rotation.x *= 0.99;
+
+            const lift = speed * currentStats.liftCoeff;
+            const upVec = new THREE.Vector3(0,1,0).applyQuaternion(planeGroup.quaternion);
+            const vForce = (lift * upVec.y) - GRAVITY;
+            planeGroup.position.y += vForce * 10;
+
+            if(planeGroup.position.y < 1.5) {
+                planeGroup.position.y = 1.5;
+                planeGroup.rotation.x *= 0.9;
+                planeGroup.rotation.z *= 0.9;
+                if(!inputs.w) speed *= 0.98;
+            }
+
+            if(gridHelper) {
+                const cellSize = 50;
+                gridHelper.position.x = Math.floor(planeGroup.position.x / cellSize) * cellSize;
+                gridHelper.position.z = Math.floor(planeGroup.position.z / cellSize) * cellSize;
+            }
+
+            if(sunMesh) {
+                sunMesh.position.x = planeGroup.position.x;
+                sunMesh.position.z = planeGroup.position.z - 4000;
+            }
+            if(blimpGroup) {
+                const t = Date.now() * 0.0002;
+                blimpGroup.position.set(Math.cos(t)*600, 250, Math.sin(t)*600);
+                blimpGroup.rotation.y = -t;
+            }
+
+            uiSpeed.innerText = (speed * 100).toFixed(0);
+            uiAlt.innerText = (planeGroup.position.y - 1.5).toFixed(0);
+            uiStatus.innerText = planeGroup.position.y < 2 ? (speed>0.1?"TAXI":"DOCKED") : "AIRBORNE";
+
+            const offset = new THREE.Vector3(0, 8, -30);
+            const target = offset.applyMatrix4(planeGroup.matrixWorld);
+            camera.position.lerp(target, 0.1);
+            camera.lookAt(planeGroup.position);
+        }
+
+        function spawnPlane(type) {
+            if(planeGroup) scene.remove(planeGroup);
+            currentStats = AIRCRAFT[type];
+            planeGroup = new THREE.Group();
+            currentStats.model(planeGroup, currentStats.color);
+            planeGroup.position.set(0, 1.5, RUNWAY_LENGTH/2 - 200);
+            planeGroup.rotation.set(0, Math.PI, 0);
+            speed = 0;
+            scene.add(planeGroup);
+        }
+
+        function createTrainer(g, c) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const line = new THREE.LineBasicMaterial({ color: c });
+            const bGeo = new THREE.ConeGeometry(2, 10, 4).rotateX(Math.PI/2);
+            const b = new THREE.Mesh(bGeo, mat);
+            b.add(new THREE.LineSegments(new THREE.EdgesGeometry(bGeo), line));
+            g.add(b);
+            const w = new THREE.Mesh(new THREE.BoxGeometry(14, 0.1, 3), new THREE.MeshBasicMaterial({ color: c }));
+            w.position.z = 1; g.add(w);
+            const t = new THREE.Mesh(new THREE.BoxGeometry(5, 0.1, 2), new THREE.MeshBasicMaterial({ color: c }));
+            t.position.z = 4; g.add(t);
+            g.add(new THREE.PointLight(c, 1, 10));
+        }
+
+        function createJet(g, c) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const line = new THREE.LineBasicMaterial({ color: c });
+            const bGeo = new THREE.ConeGeometry(1.5, 14, 4).rotateX(Math.PI/2);
+            const b = new THREE.Mesh(bGeo, mat);
+            b.add(new THREE.LineSegments(new THREE.EdgesGeometry(bGeo), line));
+            g.add(b);
+            const wGeo = new THREE.ConeGeometry(7, 5, 4).rotateX(Math.PI/2).rotateY(Math.PI).scale(1.5, 0.1, 1);
+            const w = new THREE.Mesh(wGeo, new THREE.MeshBasicMaterial({ color: c, wireframe:true }));
+            w.position.set(0,0,1); g.add(w);
+        }
+
+        function createBiplane(g, c) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const line = new THREE.LineBasicMaterial({ color: c });
+            const bGeo = new THREE.BoxGeometry(2,2,8);
+            const b = new THREE.Mesh(bGeo, mat);
+            b.add(new THREE.LineSegments(new THREE.EdgesGeometry(bGeo), line));
+            g.add(b);
+            const wGeo = new THREE.BoxGeometry(12,0.1,3);
+            const w1 = new THREE.Mesh(wGeo, new THREE.MeshBasicMaterial({color:c})); w1.position.set(0,-0.5,-1); g.add(w1);
+            const w2 = new THREE.Mesh(wGeo, new THREE.MeshBasicMaterial({color:c})); w2.position.set(0,2.5,-1); g.add(w2);
+            const p = new THREE.Mesh(new THREE.BoxGeometry(6,0.1,0.5), new THREE.MeshBasicMaterial({color:0xffffff}));
+            p.position.z=-4.2; g.add(p);
+            g.userData.animate = () => { p.rotation.z += 0.5; };
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            if(planeGroup && planeGroup.userData.animate) planeGroup.userData.animate();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
